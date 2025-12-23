@@ -1,9 +1,11 @@
 import requests
 import time
 
+import os
+
 # ==================== CONFIGURATION ====================
-# 1. Paste your fresh Bearer token from the Network tab here
-TOKEN = "Bearer eyJhbGciOiJSUzI1NiJ9..." 
+# 1. Get Token from Environment Variable (Best for GitHub Actions) or fall back to string
+TOKEN = os.getenv("ASU_TOKEN", "Bearer eyJhbGciOiJSUzI1NiJ9...") 
 
 # 2. Your specific Class ID
 TARGET_CLASS_ID = "28482"
@@ -85,12 +87,20 @@ if __name__ == "__main__":
     print(f"Starting tracker for Class {TARGET_CLASS_ID}...")
     print(f"Notifications will be sent to: https://ntfy.sh/{NTFY_TOPIC}")
     print("-" * 50)
-    
-    while True:
-        if check_asu():
-            # Successfully found a seat
-            print("Task complete. Happy registering!")
-            break
-        
-        # Wait before checking again
-        time.sleep(CHECK_INTERVAL)
+
+    # Check if running in GitHub Actions (or any CI environment)
+    # If yes, run ONCE and exit. The cron job handles the scheduling.
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        print("Running in GitHub Actions mode (Single Check)...")
+        check_asu()
+        # No loop. Exit script.
+    else:
+        # Local mode: Run in loop
+        while True:
+            if check_asu():
+                # Successfully found a seat
+                print("Task complete. Happy registering!")
+                break
+            
+            # Wait before checking again
+            time.sleep(CHECK_INTERVAL)

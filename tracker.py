@@ -1,21 +1,26 @@
 import requests
 import time
-
+import sys
 import os
 
 # ==================== CONFIGURATION ====================
-# 1. Get Token from Environment Variable (Best for GitHub Actions) or fall back to string
-TOKEN = os.getenv("ASU_TOKEN", "Bearer eyJhbGciOiJSUzI1NiJ9...") 
+# DISCOVERY: The ASU API accepts "Bearer null" without real authentication!
+# This means no token refresh is needed - it works indefinitely!
+TOKEN = "Bearer null"
 
-# 2. Your specific Class ID
+# Your specific Class ID
 TARGET_CLASS_ID = "28482"
 
-# 3. Choose a UNIQUE name for your phone notifications
+# Choose a UNIQUE name for your phone notifications
 # Subscribe to this exact name in the ntfy app
-NTFY_TOPIC = "asu_cse486_alerts_jeshad" 
+NTFY_TOPIC = "asu_cse486_alerts_jeshad"
 
-# 4. How often to check (in seconds). 180 = 3 minutes.
-CHECK_INTERVAL = 90 
+# Discord Webhook URL (optional - leave empty to disable)
+# Get this from: Discord Server → Channel Settings → Integrations → Webhooks
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1452840080732323903/M6hdXbMZRDhkZlOJsUzJVrUnQ76FEGJ7BZ33X2p0yeOeB7HG39tA0g6aLAkIJwitZZ-t"  # Paste your webhook URL here
+
+# How often to check (in seconds). 90 = 1.5 minutes.
+CHECK_INTERVAL = 90
 
 # ASU API URL for CSE 486 Spring 2026
 URL = 'https://eadvs-cscc-catalog-api.apps.asu.edu/catalog-microservices/api/v1/search/classes?&refine=Y&campusOrOnlineSelection=C&catalogNbr=486&honors=F&promod=F&searchType=all&subject=CSE&term=2261'
@@ -27,7 +32,9 @@ headers = {
 }
 
 def send_notification(message):
-    """Sends a push notification to your phone via ntfy.sh"""
+    """Sends notifications via ntfy (phone) and Discord"""
+    
+    # Send to ntfy (phone notification)
     try:
         requests.post(f"https://ntfy.sh/{NTFY_TOPIC}", 
                       data=message.encode('utf-8'),
@@ -36,8 +43,21 @@ def send_notification(message):
                           "Priority": "high",
                           "Tags": "mortar_board,rotating_light"
                       })
+        print(f"📱 Phone notification sent!")
     except Exception as e:
-        print(f"Failed to send notification: {e}")
+        print(f"Failed to send phone notification: {e}")
+    
+    # Send to Discord (if webhook is configured)
+    if DISCORD_WEBHOOK:
+        try:
+            discord_message = {
+                "content": f"🚨 **ASU CLASS ALERT** 🚨\n\n{message}\n\n🔗 [Enroll Now](https://webapp4.asu.edu/catalog/)",
+                "username": "ASU Class Tracker",
+            }
+            requests.post(DISCORD_WEBHOOK, json=discord_message)
+            print(f"💬 Discord notification sent!")
+        except Exception as e:
+            print(f"Failed to send Discord notification: {e}")
 
 def check_asu():
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -51,56 +71,61 @@ def check_asu():
             classes = data.get('classes', [])
             
             # Search the list for your specific section
-            target_found = False
             for c in classes:
-                if str(c.get('classNbr')) == TARGET_CLASS_ID:
-                    target_found = True
-                    seats = int(c.get('seatsAvailable', 0))
+                # Parse Class Number from nested CLAS object
+                clas_info = c.get('CLAS', {})
+                class_nbr = str(clas_info.get('CLASSNBR', 'Unknown'))
+                
+                if class_nbr == TARGET_CLASS_ID:
+                    # Parse Seat Info
+                    seat_info = c.get('seatInfo', {})
+                    enrl_cap = int(seat_info.get('ENRL_CAP') or 0)
+                    enrl_tot = int(seat_info.get('ENRL_TOT') or 0)
+                    seats = enrl_cap - enrl_tot
                     
                     if seats > 0:
-                        msg = f"FOUND IT! Class {TARGET_CLASS_ID} has {seats} seat(s) open. Enroll NOW!"
+                        msg = f"🎉 FOUND IT! Class {TARGET_CLASS_ID} has {seats} seat(s) open. Enroll NOW!"
                         print(f"\n{msg}\n")
                         send_notification(msg)
-                        return True # Exit loop
+                        return True  # Seat found!
                     else:
-                        print(f"Class {TARGET_CLASS_ID} is still full.")
-                        return False # Keep checking
+                        print(f"Class {TARGET_CLASS_ID} is still full. ({enrl_tot}/{enrl_cap} enrolled)")
+                        return False  # Keep checking
             
-            if not target_found:
-                print(f"Warning: Class {TARGET_CLASS_ID} not found in search results.")
+            # Class not found in results
+            print(f"Warning: Class {TARGET_CLASS_ID} not found in search results.")
+            return False
                 
-        elif response.status_code == 401:
-            print("!!! ERROR: TOKEN EXPIRED !!!")
-            print("Please refresh ASU Class Search and copy a new Bearer token.")
-            send_notification("Tracker Stopped: Token Expired.")
-            exit() # Stop the script so you know to fix the token
-            
         else:
-            print(f"Unexpected error: {response.status_code}")
+            print(f"API Error: Status {response.status_code}")
+            return False
             
     except Exception as e:
         print(f"Connection error: {e}")
-        
-    return False
+        return False
 
 if __name__ == "__main__":
-    print(f"Starting tracker for Class {TARGET_CLASS_ID}...")
-    print(f"Notifications will be sent to: https://ntfy.sh/{NTFY_TOPIC}")
-    print("-" * 50)
+    print("="*50)
+    print(f"ASU CLASS TRACKER - Monitoring Class #{TARGET_CLASS_ID}")
+    print(f"Notifications: https://ntfy.sh/{NTFY_TOPIC}")
+    print(f"Using 'Bearer null' (no token refresh needed!)")
+    print("="*50)
 
-    # Check if running in GitHub Actions (or any CI environment)
-    # If yes, run ONCE and exit. The cron job handles the scheduling.
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        print("Running in GitHub Actions mode (Single Check)...")
+    # Check if running in GitHub Actions OR if --once flag is used
+    is_github = os.getenv("GITHUB_ACTIONS") == "true"
+    is_single_run = "--once" in sys.argv
+
+    if is_github or is_single_run:
+        print("Running single check...")
         check_asu()
-        # No loop. Exit script.
     else:
         # Local mode: Run in loop
+        print(f"Checking every {CHECK_INTERVAL} seconds. Press Ctrl+C to stop.")
+        print("-"*50)
+        
         while True:
             if check_asu():
-                # Successfully found a seat
-                print("Task complete. Happy registering!")
+                print("\n🎉 Task complete! Happy registering!")
                 break
             
-            # Wait before checking again
             time.sleep(CHECK_INTERVAL)

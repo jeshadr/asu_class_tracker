@@ -15,9 +15,9 @@ TARGET_CLASS_ID = "28482"
 # Subscribe to this exact name in the ntfy app
 NTFY_TOPIC = "asu_cse486_alerts_jeshad"
 
-# Discord Webhook URL (optional - leave empty to disable)
-# Get this from: Discord Server → Channel Settings → Integrations → Webhooks
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1452840080732323903/M6hdXbMZRDhkZlOJsUzJVrUnQ76FEGJ7BZ33X2p0yeOeB7HG39tA0g6aLAkIJwitZZ-t"  # Paste your webhook URL here
+# Discord Webhook URL - reads from environment variable (Replit Secrets)
+# In Replit: Add a Secret with key "DISCORD_WEBHOOK" and your webhook URL as value
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK", "")
 
 # How often to check (in seconds). 90 = 1.5 minutes.
 CHECK_INTERVAL = 90
@@ -108,6 +108,7 @@ if __name__ == "__main__":
     print("="*50)
     print(f"ASU CLASS TRACKER - Monitoring Class #{TARGET_CLASS_ID}")
     print(f"Notifications: https://ntfy.sh/{NTFY_TOPIC}")
+    print(f"Discord: {'✓ Configured' if DISCORD_WEBHOOK else '✗ Not configured'}")
     print(f"Using 'Bearer null' (no token refresh needed!)")
     print("="*50)
 
